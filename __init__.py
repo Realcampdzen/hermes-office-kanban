@@ -141,7 +141,10 @@ def tool_create_task(params: dict, **_: Any) -> str:
     if not isinstance(task, dict):
         return _json({"success": False, "error": "Expected {task:{...}}"})
     normalized = _normalize_task(task)
-    return _json(_request("POST", "/api/tasks", {"task": normalized}))
+    payload = {"task": normalized}
+    if params.get("dryRun") or params.get("dry_run"):
+        return _json({"success": True, "dryRun": True, "method": "POST", "path": "/api/tasks", "payload": payload})
+    return _json(_request("POST", "/api/tasks", payload))
 
 
 def tool_update_task(params: dict, **_: Any) -> str:
@@ -194,6 +197,36 @@ def tool_create_plan(params: dict, **_: Any) -> str:
         plan_id=plan_id,
         plan_order=0,
     )
+
+    dry_run = bool(params.get("dryRun") or params.get("dry_run"))
+    if dry_run:
+        child_payloads: List[dict] = []
+        for idx, child in enumerate(children, start=1):
+            if not isinstance(child, dict):
+                child = {"title": str(child)}
+            child_title = str(child.get("title") or f"Plan task {idx}")
+            child_id = str(child.get("id") or f"{parent_id}-{idx}-{_slug(child_title, 18)}")
+            child_payloads.append(_normalize_task({**child, "id": child_id}, plan_id=plan_id, plan_order=idx, parent_task_id=parent_id))
+        summary = params.get("summary") or f"Created parent card and {len(children)} child cards. Waiting for portal approval."
+        message_payload = {
+            "taskId": parent_id,
+            "threadId": f"task:{parent_id}",
+            "kind": "plan",
+            "body": summary,
+            "priority": True,
+            "meta": {"planId": plan_id},
+        }
+        return _json({
+            "success": True,
+            "dryRun": True,
+            "planId": plan_id,
+            "parentTaskId": parent_id,
+            "requests": [
+                {"method": "POST", "path": "/api/tasks", "payload": {"task": parent}},
+                *[{"method": "POST", "path": "/api/tasks", "payload": {"task": task}} for task in child_payloads],
+                {"method": "POST", "path": "/api/messages", "payload": message_payload},
+            ],
+        })
 
     results: List[dict] = []
     parent_result = _request("POST", "/api/tasks", {"task": parent})
@@ -336,7 +369,7 @@ def register(ctx) -> None:
     ctx.register_tool(
         "office_kanban_create_task",
         TOOLSET,
-        _schema("office_kanban_create_task", "Create one proposed Hermes Portal task. Adds Agent Command Pipeline metadata defaults.", {"task": {"type": "object"}}, ["task"]),
+        _schema("office_kanban_create_task", "Create one proposed Hermes Portal task. Adds Agent Command Pipeline metadata defaults.", {"task": {"type": "object"}, "dryRun": {"type": "boolean", "description": "Return the Portal request without sending it."}}, ["task"]),
         handler=lambda args, **kw: tool_create_task(args, **kw),
         requires_env=requires,
         description="Create proposed portal task.",
@@ -354,6 +387,7 @@ def register(ctx) -> None:
                 "children": {"type": "array", "items": {"type": "object"}},
                 "planId": {"type": "string"},
                 "summary": {"type": "string"},
+                "dryRun": {"type": "boolean", "description": "Return the planned Portal requests without sending them."},
             },
             ["goal", "children"],
         ),

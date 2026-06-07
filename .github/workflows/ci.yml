@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile Python files
+        run: python -m py_compile __init__.py scripts/smoke_test.py scripts/offline_smoke_test.py
+
+      - name: Offline plugin smoke test
+        run: python scripts/offline_smoke_test.py
+
+      - name: Validate required package files
+        run: |
+          test -f plugin.yaml
+          test -f README.md
+          test -f CHANGELOG.md
+          test -f docs/API_CONTRACT.md
+          test -x scripts/install.sh

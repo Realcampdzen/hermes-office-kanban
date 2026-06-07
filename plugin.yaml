@@ -1,5 +1,5 @@
 name: hermes-office-kanban
-version: "0.1.0"
+version: "0.2.0"
 description: Hermes Office Kanban Portal tools, slash commands, planning hooks, and bundled planning skills.
 author: NeuroStepa / Real Lager
 kind: standalone
